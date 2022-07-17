@@ -36,7 +36,7 @@ docker run -p 27017:27017 -d -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB
 * `-p`：Ports，用來設定容器對外和對內的通訊連接埠，格式為`HOST_PORT:CONTAINER_PORT`，前者代表Host上要取用容器內服務需要連接的通道、後者代表容器內部服務互相溝通需要連接的通道
 * `-e`：Environment variable，代表該服務可設定的環境變數，`mongodb`就有`MONGO_INITDB_ROOT_USERNAME`、`MONGO_INITDB_PASSWORD`...等
 * `--name`：容器識別名，後續如果在容器內的服務需要互相溝通，可以直接用識別名而不需要用連接埠
-* `--net`：網域名，用於設定那些容器處在同一個網域下可相互通訊
+* `--net`：網域名，用於設定哪些容器處在同一個網域下可相互通訊
 
 同樣的，`mongo-express`同樣也有一些設定：
 
@@ -62,7 +62,7 @@ docker logs <id> -f // 即時監控的stream mode
 ## 以`docker-compose`建立多個服務
 有時實作的App可能涵蓋多種服務內容，因此必須設定多組容器和環境，這時候如果再用`docker run`一個一個跑起來和設定就比較沒效率。取而代之的，可以寫`docker-compose.yaml`一次跑起多組服務，這也是「Configuration as Code」強大之處，僅用程式碼就能架構所需要的設定。
 
-在這裡只需要將各個容器列在services下，而參數得像解釋則可以參考[Kafka-learn](https://github.com/urjjj0909/kafka-learn)。需要注意的是`mongo-express`必須等到`mongodb`啟動完成才能夠連線，所以在`docker-compose.yaml`中可以在`mongo-express`這邊加入`depends_on`參數，或是加入`restart`也可以：
+在這裡只需要將各個容器列在services下，而參數解釋可以參考[Kafka-learn](https://github.com/urjjj0909/kafka-learn)。需要注意的是`mongo-express`必須等到`mongodb`啟動完成才能夠連線，所以在`docker-compose.yaml`中可以在`mongo-express`這邊加入`depends_on`參數，或是加入`restart`也可以：
 
 ```
 version: '3'
@@ -137,4 +137,43 @@ docker ps
 docker exec -it <id> /bin/bash // 或是用docker exec -it <id> /bin/sh
 ```
 
-其中，`-it`是代表interactive terminal的意思，而有些容器環境內是安裝bash、有些是安裝shell，所以都可以試試看。而在進入terminal後可以用`env`去檢查該容器內的環境變數。
+其中，`-it`是代表interactive terminal的意思，而有些容器環境內是安裝bash、有些是安裝shell，所以都可以試試看。在進入terminal後也可以用`env`去檢查該容器內的環境變數。
+
+## 以AWS ECR建立Private repo
+在上一節build好的Docker image可以用`docker push <image>`上傳至Docker hub，也可以上傳至AWS的ECR（Amazon Container Registry）。先到AWS註冊帳號後使用ECR服務開啟一個repo，勾選repo後按上方View push commands，會列出上傳image須完成的步驟（須先完成AWS CLI安裝和授權權杖設定）。
+
+首先，在terminal中輸入以下指令向AWS ECR註冊Docker客戶端：
+
+```
+aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.<region>.amazonaws.com
+```
+
+把要上傳的image給定新的標籤（會複製一份新的my-app）：
+
+```
+docker tag my-app:1.0 <aws_account_id>.dkr.ecr.<region>.amazonaws.com/my-app:1.0
+```
+
+最後，將其push到private repo中：
+
+```
+docker push <aws_account_id>.dkr.ecr.<region>.amazonaws.com/my-app:1.0
+```
+
+註：只要在本機要修改版本，則在build my-app:1.1（新的版本）後，重複`docker tag ...`和`docker push ...`二個步驟即可，只是要記得版本都要寫新的，這樣新版本就會存到同一個private repo中且會依照版本做區分。
+
+## 注意事項
+使用AWS CLI和ECR互動可按照[教學](https://docs.aws.amazon.com/AmazonECR/latest/userguide/getting-started-cli.html)一步步完成，其中，安裝Windows版本可以到[這裡](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)下載。此外，要使用AWS CLI和AWS服務做溝通還需進行設定，由於我使用VS Code做開發，可依照以下教學完成：
+
+1. 參考[本篇](https://docs.aws.amazon.com/toolkit-for-vscode/latest/userguide/setup-toolkit.html)在Extensions中下載AWS Toolkit
+2. [Obtaining AWS access keys](https://docs.aws.amazon.com/toolkit-for-vscode/latest/userguide/obtain-credentials.html)
+3. [Setting up AWS credentials](https://docs.aws.amazon.com/toolkit-for-vscode/latest/userguide/setup-credentials.html)
+4. 以上都完成後應該就可以在user的目錄下看到`.aws`資料夾，而credentials就在其中
+
+完成以上動作，只是完成了AWS CLI的權杖設定，接著才要進入[教學](https://docs.aws.amazon.com/AmazonECR/latest/userguide/getting-started-cli.html)中的「Step 2: Authenticate to your default registry」：
+
+```
+aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.<region>.amazonaws.com
+```
+
+確認成功後，基本上就可以push自己建立的image到ECR中了。
